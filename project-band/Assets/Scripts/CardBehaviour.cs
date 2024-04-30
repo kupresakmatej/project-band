@@ -11,10 +11,11 @@ public class CardBehaviour : MonoBehaviour
 
     private Vector3[] originalPositions;
     private Quaternion[] originalRotations;
+    private Transform[] originalParents; // To store the original parents of the cards
 
     void Start()
     {
-        StoreOriginalPositionsAndRotations();
+        StoreOriginalPositionsRotationsAndParents();
     }
 
     void Update()
@@ -29,15 +30,17 @@ public class CardBehaviour : MonoBehaviour
         }
     }
 
-    private void StoreOriginalPositionsAndRotations()
+    private void StoreOriginalPositionsRotationsAndParents()
     {
         originalPositions = new Vector3[cards.Length];
         originalRotations = new Quaternion[cards.Length];
+        originalParents = new Transform[cards.Length];
 
         for (int i = 0; i < cards.Length; i++)
         {
             originalPositions[i] = cards[i].transform.position;
             originalRotations[i] = cards[i].transform.rotation;
+            originalParents[i] = cards[i].transform.parent; // Store the original parent
         }
     }
 
@@ -82,6 +85,10 @@ public class CardBehaviour : MonoBehaviour
                 float t = elapsedTime / duration;
                 card.transform.position = Vector3.Lerp(originalPositions[i], targetPosition, t);
                 card.transform.rotation = Quaternion.Lerp(initialRotation, targetRotation, t);
+
+                // Attach the card to the camera during animation
+                card.transform.parent = Camera.main.transform;
+
                 yield return null;
             }
 
@@ -131,6 +138,9 @@ public class CardBehaviour : MonoBehaviour
 
             card.transform.position = targetPosition;
             card.transform.rotation = targetRotation;
+
+            // Reset parent to the original parent
+            card.transform.parent = originalParents[i];
         }
     }
 }

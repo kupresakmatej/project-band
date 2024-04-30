@@ -5,6 +5,11 @@ TagManager:
   serializedVersion: 2
   tags:
   - Card
+  - Guitarist
+  - Drummer
+  - Bass
+  - Keyboard
+  - Singer
   layers:
   - Default
   - TransparentFX
