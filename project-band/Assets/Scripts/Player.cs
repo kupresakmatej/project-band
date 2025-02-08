@@ -2,7 +2,8 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
-public enum PlayerType { 
+public enum PlayerType
+{
     Bass,
     Drummer,
     Guitar,
@@ -13,16 +14,17 @@ public enum PlayerType {
 public class Player : MonoBehaviour
 {
     public PlayerType Type;
+    public ParticleSystem highlighterEffect;
     public int Health;
-    public int Mana;
+    public int Damage;
 
     private void Start()
     {
-        
+
     }
 
     private void Update()
     {
-        
+
     }
 }
