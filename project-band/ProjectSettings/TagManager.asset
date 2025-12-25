@@ -10,6 +10,8 @@ TagManager:
   - Bass
   - Keyboard
   - Singer
+  - Ally
+  - Enemy
   layers:
   - Default
   - TransparentFX
