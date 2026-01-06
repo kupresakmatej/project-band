@@ -1,188 +1,175 @@
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using System.Collections;
-using UnityEngine.UI;  // For Text
+using UnityEngine.UI;
+using TMPro;  // For Text
 
 public class GameMenuController : MonoBehaviour
 {
-    [Header("Animation Settings")]
-    public float totalAnimationDuration = 2.0f;
-    public float returnDuration = 1.5f;
-    public float initialHeight = 20f;
-    public float zoomedHeight = 6f;
-    public float forwardDollyDistance = 4f;
-    public float finalFOV = 40f;
+    [Header("Menu Settings")]
+    public Transform[] menuItems;           // Drag all menu items here in left-to-right order
+    public float rotationDuration = 0.6f;   // Smooth rotation time between items
+    public float cameraDistance = 8f;       // How far back the camera is from the center
+    public float cameraHeight = 4f;         // Camera eye height
 
     [Header("UI Hint Settings")]
-    public GameObject hintPanel;           // Optional: assign a UI Panel in inspector
-    public Text hintText;                  // Assign a UI Text or TextMeshProUGUI (see notes below)
-    public string backHint = "ESC - Back";
-    public string enterHintBase = "E - ";   // Will become "E - Play" or "E - Enter"
+    public GameObject hintPanel;            // Drag your Panel here (optional if you use auto-create)
+    public TextMeshProUGUI hintText;        // Drag your TextMeshPro text object here
+    public string navigateHint = "← → Arrows - Navigate";
+    public string backHint = "ESC - Quit";
+    public string selectPlay = "E / Enter - Play";     // Shown when item has a scene
+    public string selectEnter = "E / Enter - Select";  // Shown when no scene
 
-    [Header("References")]
-    public Transform circleCenter;
-
-    private Transform selectedItem;
-    private bool isAnimating = false;
-    private bool isInItemView = false;
-
+    private int currentIndex = 0;
+    private bool isRotating = false;
     private Camera mainCam;
-    private float originalFOV;
-
-    private Vector3 originalPosition;
-    private Quaternion originalRotation;
+    private Transform circleCenter;
 
     private void Awake()
     {
         mainCam = Camera.main;
-        originalFOV = mainCam.fieldOfView;
 
-        if (circleCenter == null)
-            circleCenter = new GameObject("CircleCenter").transform;
+        if (menuItems.Length == 0)
+        {
+            Debug.LogError("Please assign menu items in the inspector!");
+            return;
+        }
 
-        // Auto-create hint UI if not assigned
+        // Calculate center of all items
+        Vector3 center = Vector3.zero;
+        foreach (var item in menuItems)
+            center += item.position;
+        center /= menuItems.Length;
+
+        circleCenter = new GameObject("MenuCenter").transform;
+        circleCenter.position = new Vector3(center.x, 0, center.z);
+
+        // Auto-create UI only if you forgot to assign in inspector
         if (hintText == null)
             CreateHintUI();
     }
 
     private void Start()
     {
-        if (initialHeight <= 0f)
-            initialHeight = mainCam.transform.position.y;
-
-        originalPosition = new Vector3(circleCenter.position.x, initialHeight, circleCenter.position.z);
-        originalRotation = Quaternion.Euler(90f, 0f, 0f);
-
-        mainCam.transform.position = originalPosition;
-        mainCam.transform.rotation = originalRotation;
-
-        // Hide hint at start
-        SetHintVisible(false);
+        currentIndex = menuItems.Length / 2;  // Start on middle item
+        SnapCameraToCurrentItem(true);        // Instant snap at start
+        UpdateHint();
+        SetHintVisible(true);
     }
 
     void Update()
     {
-        if (isAnimating) return;
+        if (isRotating) return;
 
-        // Click to select item
-        if (!isInItemView && Input.GetMouseButtonDown(0))
-        {
-            Ray ray = mainCam.ScreenPointToRay(Input.mousePosition);
-            if (Physics.Raycast(ray, out RaycastHit hit))
-            {
-                selectedItem = hit.transform;
-                StartCoroutine(AnimateToItem(selectedItem));
-            }
-        }
+        if (Input.GetKeyDown(KeyCode.RightArrow))
+            MoveToPreviousItem();
 
-        // ESC = back
-        if (isInItemView && Input.GetKeyDown(KeyCode.Escape))
-        {
-            StartCoroutine(ReturnToTopView());
-        }
+        if (Input.GetKeyDown(KeyCode.LeftArrow))
+            MoveToNextItem();
 
-        // E = load scene
-        if (isInItemView && Input.GetKeyDown(KeyCode.E))
+        if (Input.GetKeyDown(KeyCode.E) || Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.KeypadEnter))
+            SelectCurrentItem();
+
+        if (Input.GetKeyDown(KeyCode.Escape))
         {
-            MenuItem itemScript = selectedItem?.GetComponent<MenuItem>();
-            if (itemScript != null && !string.IsNullOrEmpty(itemScript.sceneToLoad))
-            {
-                SceneManager.LoadScene(itemScript.sceneToLoad);
-            }
+#if UNITY_EDITOR
+            UnityEditor.EditorApplication.isPlaying = false;
+#else
+            Application.Quit();
+#endif
         }
     }
 
-    IEnumerator AnimateToItem(Transform target)
+    void MoveToNextItem()
     {
-        isAnimating = true;
-        isInItemView = true;
+        currentIndex = (currentIndex + 1) % menuItems.Length;
+        StartCoroutine(RotateToItem(menuItems[currentIndex]));
+        UpdateHint();
+    }
 
-        Vector3 centerPos = circleCenter.position;
-        Vector3 toTargetXZ = target.position - centerPos;
-        toTargetXZ.y = 0;
-        Vector3 forwardDirection = toTargetXZ.normalized;
+    void MoveToPreviousItem()
+    {
+        currentIndex = (currentIndex - 1 + menuItems.Length) % menuItems.Length;
+        StartCoroutine(RotateToItem(menuItems[currentIndex]));
+        UpdateHint();
+    }
 
-        Vector3 finalPos = new Vector3(
-            centerPos.x + forwardDirection.x * forwardDollyDistance,
-            zoomedHeight,
-            centerPos.z + forwardDirection.z * forwardDollyDistance
-        );
+    void SelectCurrentItem()
+    {
+        var item = menuItems[currentIndex];
+        var menuItemScript = item.GetComponent<MenuItem>();
 
-        Quaternion finalRot = Quaternion.LookRotation(target.position - finalPos, Vector3.up);
+        if (menuItemScript != null && !string.IsNullOrEmpty(menuItemScript.sceneToLoad))
+        {
+            SceneManager.LoadScene(menuItemScript.sceneToLoad);
+        }
+        else
+        {
+            Debug.Log($"Selected: {item.name} (no scene to load - open your UI panel here)");
+            // Example: enable Options panel, Credits, etc.
+        }
+    }
+
+    IEnumerator RotateToItem(Transform target)
+    {
+        isRotating = true;
 
         Vector3 startPos = mainCam.transform.position;
         Quaternion startRot = mainCam.transform.rotation;
 
+        Vector3 directionToItem = (target.position - circleCenter.position).normalized;
+        Vector3 targetPos = circleCenter.position - directionToItem * cameraDistance;
+        targetPos.y = cameraHeight;
+
+        Quaternion targetRot = Quaternion.LookRotation(target.position - targetPos, Vector3.up);
+
         float time = 0f;
-        while (time < totalAnimationDuration)
+        while (time < rotationDuration)
         {
             time += Time.deltaTime;
-            float t = Mathf.Clamp01(time / totalAnimationDuration);
+            float t = Mathf.Clamp01(time / rotationDuration);
             t = EaseOutQuint(t);
 
-            mainCam.transform.position = Vector3.Lerp(startPos, finalPos, t);
-            mainCam.transform.rotation = Quaternion.Slerp(startRot, finalRot, t);
-            mainCam.fieldOfView = Mathf.Lerp(originalFOV, finalFOV, t);
-
+            mainCam.transform.position = Vector3.Lerp(startPos, targetPos, t);
+            mainCam.transform.rotation = Quaternion.Slerp(startRot, targetRot, t);
             yield return null;
         }
 
-        // Final position
-        mainCam.transform.position = finalPos;
-        mainCam.transform.rotation = finalRot;
-        mainCam.fieldOfView = finalFOV;
-
-        // Show hint when animation is done
-        UpdateAndShowHint(target);
-
-        isAnimating = false;
+        mainCam.transform.position = targetPos;
+        mainCam.transform.rotation = targetRot;
+        isRotating = false;
     }
 
-    IEnumerator ReturnToTopView()
+    void SnapCameraToCurrentItem(bool instant = false)
     {
-        isAnimating = true;
-        SetHintVisible(false);
+        var target = menuItems[currentIndex];
+        Vector3 direction = (target.position - circleCenter.position).normalized;
+        Vector3 pos = circleCenter.position - direction * cameraDistance;
+        pos.y = cameraHeight;
 
-        Vector3 startPos = mainCam.transform.position;
-        Quaternion startRot = mainCam.transform.rotation;
-        float startFOV = mainCam.fieldOfView;
-
-        float time = 0f;
-        while (time < returnDuration)
+        if (instant)
         {
-            time += Time.deltaTime;
-            float t = Mathf.Clamp01(time / returnDuration);
-            t = EaseOutQuint(t);
-
-            mainCam.transform.position = Vector3.Lerp(startPos, originalPosition, t);
-            mainCam.transform.rotation = Quaternion.Slerp(startRot, originalRotation, t);
-            mainCam.fieldOfView = Mathf.Lerp(startFOV, originalFOV, t);
-
-            yield return null;
+            mainCam.transform.position = pos;
+            mainCam.transform.rotation = Quaternion.LookRotation(target.position - pos, Vector3.up);
         }
-
-        mainCam.transform.position = originalPosition;
-        mainCam.transform.rotation = originalRotation;
-        mainCam.fieldOfView = originalFOV;
-
-        isInItemView = false;
-        selectedItem = null;
-        isAnimating = false;
+        else
+        {
+            StartCoroutine(RotateToItem(target));
+        }
     }
 
-    private void UpdateAndShowHint(Transform target)
+    private void UpdateHint()
     {
-        MenuItem itemScript = target.GetComponent<MenuItem>();
-        bool hasScene = itemScript != null && !string.IsNullOrEmpty(itemScript.sceneToLoad);
+        if (hintText == null || menuItems.Length == 0) return;
 
-        string enterText = hasScene ? "Play" : "Enter"; // Or "Select", "Open", etc.
+        var currentItem = menuItems[currentIndex];
+        var menuItemScript = currentItem.GetComponent<MenuItem>();
+        bool hasScene = menuItemScript != null && !string.IsNullOrEmpty(menuItemScript.sceneToLoad);
 
-        if (hintText != null)
-        {
-            hintText.text = $"{backHint}\n{enterHintBase}{enterText}";
-        }
+        string selectText = hasScene ? selectPlay : selectEnter;
+        string itemName = currentItem.name;
 
-        SetHintVisible(true);
+        hintText.text = $"{itemName}\n\n{navigateHint}\n{selectText}\n{backHint}";
     }
 
     private void SetHintVisible(bool visible)
@@ -193,51 +180,48 @@ public class GameMenuController : MonoBehaviour
             hintText.gameObject.SetActive(visible);
     }
 
-    // Auto-create simple UI if nothing is assigned in inspector
     private void CreateHintUI()
     {
-        GameObject canvasObj = GameObject.Find("Canvas");
-        if (canvasObj == null)
-        {
-            canvasObj = new GameObject("Canvas");
-            Canvas canvas = canvasObj.AddComponent<Canvas>();
-            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-            canvasObj.AddComponent<CanvasScaler>();
-            canvasObj.AddComponent<GraphicRaycaster>();
-        }
+        GameObject canvasObj = GameObject.Find("Canvas") ?? CreateCanvas();
 
         GameObject panelObj = new GameObject("HintPanel");
         panelObj.transform.SetParent(canvasObj.transform, false);
-
         hintPanel = panelObj;
 
-        // Background panel (optional semi-transparent)
-        Image img = panelObj.AddComponent<Image>();
-        img.color = new Color(0, 0, 0, 0.5f);
+        var img = panelObj.AddComponent<Image>();
+        img.color = new Color(0, 0, 0, 0.6f);
 
         GameObject textObj = new GameObject("HintText");
         textObj.transform.SetParent(panelObj.transform, false);
 
-        hintText = textObj.AddComponent<Text>();
-        hintText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-        hintText.fontSize = 24;
+        hintText = textObj.AddComponent<TextMeshProUGUI>();
+        hintText.fontSize = 28;
         hintText.color = Color.white;
-        hintText.alignment = TextAnchor.UpperLeft;
+        hintText.alignment = TMPro.TextAlignmentOptions.TopLeft;
 
-        // Position top-left
-        RectTransform panelRect = panelObj.GetComponent<RectTransform>();
+        // Layout
+        var panelRect = panelObj.GetComponent<RectTransform>();
         panelRect.anchorMin = new Vector2(0, 1);
         panelRect.anchorMax = new Vector2(0, 1);
         panelRect.pivot = new Vector2(0, 1);
-        panelRect.anchoredPosition = new Vector2(20, -20);
+        panelRect.anchoredPosition = new Vector2(30, -30);
+        panelRect.sizeDelta = new Vector2(400, 160);
 
-        RectTransform textRect = textObj.GetComponent<RectTransform>();
+        var textRect = textObj.GetComponent<RectTransform>();
         textRect.anchorMin = Vector2.zero;
         textRect.anchorMax = Vector2.one;
-        textRect.offsetMin = new Vector2(15, 15);
-        textRect.offsetMax = new Vector2(-15, -15);
+        textRect.offsetMin = new Vector2(20, 20);
+        textRect.offsetMax = new Vector2(-20, -20);
+    }
 
-        panelRect.sizeDelta = new Vector2(250, 100);
+    private GameObject CreateCanvas()
+    {
+        GameObject canvasObj = new GameObject("Canvas");
+        var canvas = canvasObj.AddComponent<Canvas>();
+        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        canvasObj.AddComponent<CanvasScaler>();
+        canvasObj.AddComponent<GraphicRaycaster>();
+        return canvasObj;
     }
 
     private float EaseOutQuint(float t)
